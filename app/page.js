@@ -110,8 +110,12 @@ export default function Home() {
 
     const selectedRange = dayOptions.find((option) => option.value === days) ?? dayOptions[0];
 
-    const handleSearch = async (requestedCity = city, requestedDays = days, requestedUnits = units) => {
-        const trimmedCity = requestedCity.trim();
+    const handleSearch = async (requestedCityInput = city, requestedDays = days, requestedUnits = units) => {
+        const normalizedCity =
+            typeof requestedCityInput === 'string'
+                ? requestedCityInput
+                : requestedCityInput?.target?.value ?? city;
+        const trimmedCity = normalizedCity.trim();
 
         if (!trimmedCity) {
             setError('Please enter a city to continue.');
