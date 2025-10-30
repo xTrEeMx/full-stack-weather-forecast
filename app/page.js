@@ -102,24 +102,46 @@ export default function Home() {
                                 className="w-full bg-transparent text-base text-slate-100 placeholder:text-slate-400 focus:outline-none"
                             />
                         </label>
-                        <select
-                            value={days}
-                            onChange={(e) => setDays(Number(e.target.value))}
-                            className="rounded-2xl bg-slate-900/60 px-5 py-4 text-base font-medium text-slate-100 ring-1 ring-white/5 transition hover:ring-cyan-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                        >
-                            <option className="bg-slate-900" value="3">
-                                3 Days
-                            </option>
-                            <option className="bg-slate-900" value="5">
-                                5 Days
-                            </option>
-                            <option className="bg-slate-900" value="7">
-                                7 Days
-                            </option>
-                            <option className="bg-slate-900" value="10">
-                                10 Days
-                            </option>
-                        </select>
+                        <div className="group relative rounded-2xl bg-slate-900/60 px-5 py-4 ring-1 ring-white/5 transition focus-within:ring-2 focus-within:ring-cyan-400/60">
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-200/70">Forecast range</p>
+                                    <p className="mt-1 text-sm text-slate-300/90">Pick how many days of insight you want.</p>
+                                </div>
+                                <div className="relative w-36">
+                                    <select
+                                        value={days}
+                                        onChange={(e) => setDays(Number(e.target.value))}
+                                        aria-label="Select forecast range in days"
+                                        className="peer w-full appearance-none rounded-xl border border-white/10 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-slate-100 shadow-[0_10px_30px_-18px_rgba(56,189,248,0.8)] transition focus:border-cyan-400/60 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+                                    >
+                                        <option className="bg-slate-900" value="3">
+                                            3 Days • Snapshot
+                                        </option>
+                                        <option className="bg-slate-900" value="5">
+                                            5 Days • Workweek
+                                        </option>
+                                        <option className="bg-slate-900" value="7">
+                                            7 Days • Weekly
+                                        </option>
+                                        <option className="bg-slate-900" value="10">
+                                            10 Days • Extended
+                                        </option>
+                                    </select>
+                                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-cyan-200/70 transition group-focus-within:text-cyan-200">
+                                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.084l3.71-3.854a.75.75 0 0 1 1.08 1.04l-4.25 4.41a.75.75 0 0 1-1.08 0l-4.25-4.41a.75.75 0 0 1 .02-1.06Z" />
+                                        </svg>
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                                <svg className="h-4 w-4 text-cyan-200/80" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                                </svg>
+                                Longer ranges reveal trends, while shorter ones keep things snappy.
+                            </p>
+                        </div>
                     </div>
 
                     <button
