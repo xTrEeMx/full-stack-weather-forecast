@@ -1,6 +1,14 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { fetchWeather, fetchForecast, fetchAdditionalConditions } from '@/app/lib/openweather';
+import {
+    fetchWeather,
+    fetchForecast,
+    fetchAdditionalConditions,
+    fetchWeatherByCoordinates,
+    fetchForecastByCoordinates,
+    fetchCitySuggestions,
+    fetchCityByCoordinates,
+} from '@/app/lib/openweather';
 
 const dayOptions = [
     { value: 3, title: '3 Days', description: 'Quick snapshot outlook' },
@@ -10,7 +18,7 @@ const dayOptions = [
 ];
 
 export default function Home() {
-    const [city, setCity] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
     const [weather, setWeather] = useState(null);
     const [forecast, setForecast] = useState([]);
     const [days, setDays] = useState(3);
@@ -20,6 +28,10 @@ export default function Home() {
     const [additionalConditions, setAdditionalConditions] = useState(null);
     const [favorites, setFavorites] = useState([]);
     const [isRangeOpen, setIsRangeOpen] = useState(false);
+    const [suggestions, setSuggestions] = useState([]);
+    const [isSuggesting, setIsSuggesting] = useState(false);
+    const [lastSearch, setLastSearch] = useState({ cityName: '', coords: null });
+    const [isLocating, setIsLocating] = useState(false);
     const rangeRef = useRef(null);
 
     useEffect(() => {
@@ -63,6 +75,44 @@ export default function Home() {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, []);
+
+    useEffect(() => {
+        const trimmedQuery = searchTerm.trim();
+
+        if (trimmedQuery.length < 2) {
+            setSuggestions([]);
+            setIsSuggesting(false);
+            return;
+        }
+
+        let isActive = true;
+        const controller = new AbortController();
+        setIsSuggesting(true);
+
+        const timeoutId = setTimeout(async () => {
+            try {
+                const results = await fetchCitySuggestions(trimmedQuery, 6, controller.signal);
+
+                if (isActive) {
+                    setSuggestions(results);
+                }
+            } catch (suggestionError) {
+                if (suggestionError.name !== 'AbortError' && isActive) {
+                    console.error('Unable to load city suggestions:', suggestionError);
+                }
+            } finally {
+                if (isActive) {
+                    setIsSuggesting(false);
+                }
+            }
+        }, 250);
+
+        return () => {
+            isActive = false;
+            clearTimeout(timeoutId);
+            controller.abort();
+        };
+    }, [searchTerm]);
 
     const formatTemperature = (temperature) => {
         if (temperature == null) {
@@ -109,15 +159,15 @@ export default function Home() {
     const formatPrecipProbability = (probability) => `${Math.round((probability ?? 0) * 100)}%`;
 
     const selectedRange = dayOptions.find((option) => option.value === days) ?? dayOptions[0];
+    const hasSuggestionQuery = searchTerm.trim().length >= 2;
+    const shouldShowSuggestionPanel = hasSuggestionQuery && (isSuggesting || suggestions.length > 0);
+    const shouldShowEmptySuggestions = hasSuggestionQuery && !isSuggesting && suggestions.length === 0;
 
-    const handleSearch = async (requestedCityInput = city, requestedDays = days, requestedUnits = units) => {
-        const normalizedCity =
-            typeof requestedCityInput === 'string'
-                ? requestedCityInput
-                : requestedCityInput?.target?.value ?? city;
-        const trimmedCity = normalizedCity.trim();
+    const performSearch = async ({ cityName, coords }, requestedDays = days, requestedUnits = units) => {
+        const trimmedCity = cityName?.trim() ?? '';
+        const hasCoordinates = coords && typeof coords.lat === 'number' && typeof coords.lon === 'number';
 
-        if (!trimmedCity) {
+        if (!trimmedCity && !hasCoordinates) {
             setError('Please enter a city to continue.');
             setWeather(null);
             setForecast([]);
@@ -129,8 +179,20 @@ export default function Home() {
         setError('');
 
         try {
-            const weatherData = await fetchWeather(trimmedCity, requestedUnits);
-            const forecastData = await fetchForecast(trimmedCity, requestedDays, requestedUnits);
+            let weatherData;
+            let forecastData;
+            let resolvedCoords = coords;
+
+            if (hasCoordinates) {
+                weatherData = await fetchWeatherByCoordinates(coords.lat, coords.lon, requestedUnits);
+                forecastData = await fetchForecastByCoordinates(coords.lat, coords.lon, requestedDays, requestedUnits);
+            } else {
+                weatherData = await fetchWeather(trimmedCity, requestedUnits);
+                forecastData = await fetchForecast(trimmedCity, requestedDays, requestedUnits);
+                resolvedCoords = weatherData?.coord
+                    ? { lat: weatherData.coord.lat, lon: weatherData.coord.lon }
+                    : null;
+            }
 
             const dailyForecast = getDailyForecast(forecastData.list, requestedDays);
 
@@ -146,10 +208,15 @@ export default function Home() {
                 console.error('Unable to fetch additional conditions:', climateError);
             }
 
-            setCity(trimmedCity);
             setWeather(weatherData);
             setForecast(dailyForecast);
             setAdditionalConditions(climateData);
+            setSuggestions([]);
+            setIsSuggesting(false);
+
+            const resolvedCityName = trimmedCity || weatherData?.name || cityName || '';
+            setSearchTerm(resolvedCityName);
+            setLastSearch({ cityName: resolvedCityName, coords: resolvedCoords });
         } catch (error) {
             console.error('Failed to fetch weather or forecast:', error);
             setError('Unable to fetch weather data right now. Please try again in a moment.');
@@ -161,6 +228,31 @@ export default function Home() {
         }
     };
 
+    const handleSearch = async (input, requestedDays = days, requestedUnits = units) => {
+        if (input?.preventDefault) {
+            input.preventDefault();
+        }
+
+        if (typeof input === 'string') {
+            await performSearch({ cityName: input, coords: null }, requestedDays, requestedUnits);
+            return;
+        }
+
+        if (input && typeof input === 'object' && (Object.prototype.hasOwnProperty.call(input, 'cityName') || Object.prototype.hasOwnProperty.call(input, 'coords'))) {
+            await performSearch(
+                {
+                    cityName: input.cityName ?? searchTerm,
+                    coords: input.coords ?? null,
+                },
+                requestedDays,
+                requestedUnits,
+            );
+            return;
+        }
+
+        await performSearch({ cityName: searchTerm, coords: null }, requestedDays, requestedUnits);
+    };
+
     const handleUnitsChange = (nextUnits) => {
         if (nextUnits === units) {
             return;
@@ -168,8 +260,8 @@ export default function Home() {
 
         setUnits(nextUnits);
 
-        if (city.trim()) {
-            handleSearch(city, days, nextUnits);
+        if (lastSearch.cityName || lastSearch.coords) {
+            handleSearch({ cityName: lastSearch.cityName, coords: lastSearch.coords }, days, nextUnits);
         }
     };
 
@@ -177,8 +269,8 @@ export default function Home() {
         setDays(value);
         setIsRangeOpen(false);
 
-        if (city.trim()) {
-            handleSearch(city, value);
+        if (lastSearch.cityName || lastSearch.coords) {
+            handleSearch({ cityName: lastSearch.cityName, coords: lastSearch.coords }, value);
         }
     };
 
@@ -194,11 +286,68 @@ export default function Home() {
 
     const handleSelectFavorite = (favoriteCity) => {
         setIsRangeOpen(false);
-        handleSearch(favoriteCity, days);
+        setSearchTerm(favoriteCity);
+        handleSearch({ cityName: favoriteCity }, days);
     };
 
     const handleRemoveFavorite = (favoriteCity) => {
         setFavorites((prev) => prev.filter((storedCity) => storedCity !== favoriteCity));
+    };
+
+    const formatSuggestionLabel = (suggestion) => {
+        return [suggestion.name, suggestion.state, suggestion.country].filter(Boolean).join(', ');
+    };
+
+    const handleSelectSuggestion = async (suggestion) => {
+        const label = formatSuggestionLabel(suggestion);
+        setSearchTerm(label);
+        setSuggestions([]);
+        await handleSearch({ cityName: label, coords: { lat: suggestion.lat, lon: suggestion.lon } });
+    };
+
+    const handleDetectLocation = () => {
+        if (typeof window === 'undefined' || !window.navigator?.geolocation) {
+            setError('Location detection is not supported in this browser.');
+            return;
+        }
+
+        setIsLocating(true);
+        setError('');
+
+        window.navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude } = position.coords;
+
+                let detectedCity = '';
+
+                try {
+                    const resolvedCity = await fetchCityByCoordinates(latitude, longitude);
+                    if (resolvedCity) {
+                        detectedCity = resolvedCity;
+                        setSearchTerm(resolvedCity);
+                    }
+                } catch (geoLookupError) {
+                    if (geoLookupError.name !== 'AbortError') {
+                        console.error('Unable to resolve city from coordinates:', geoLookupError);
+                    }
+                }
+
+                try {
+                    await handleSearch({ cityName: detectedCity, coords: { lat: latitude, lon: longitude } });
+                } finally {
+                    setIsLocating(false);
+                }
+            },
+            (geoError) => {
+                console.error('Geolocation error:', geoError);
+                setError('We were unable to detect your location. Please enter a city manually.');
+                setIsLocating(false);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 15000,
+            },
+        );
     };
 
     // Function to filter forecast data to one entry per day
@@ -300,25 +449,85 @@ export default function Home() {
 
                 <section className="mt-12 w-full max-w-3xl rounded-[2.5rem] border border-white/10 bg-white/5 p-8 shadow-[0_0_60px_-20px_rgba(56,189,248,0.8)] backdrop-blur-2xl">
                     <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
-                        <label className="group relative flex items-center gap-3 overflow-hidden rounded-2xl bg-slate-900/60 px-5 py-4 ring-1 ring-white/5 transition focus-within:ring-2 focus-within:ring-cyan-400/60">
-                            <svg
-                                className="h-5 w-5 text-cyan-300 transition group-focus-within:scale-105"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                viewBox="0 0 24 24"
-                                xmlns="http://www.w3.org/2000/svg"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z" />
-                            </svg>
-                            <input
-                                type="text"
-                                value={city}
-                                onChange={(e) => setCity(e.target.value)}
-                                placeholder="Enter a city e.g. Tokyo"
-                                className="w-full bg-transparent text-base text-slate-100 placeholder:text-slate-400 focus:outline-none"
-                            />
-                        </label>
+                        <div className="relative">
+                            <label className="group relative flex items-center gap-3 overflow-hidden rounded-2xl bg-slate-900/60 px-5 py-4 ring-1 ring-white/5 transition focus-within:ring-2 focus-within:ring-cyan-400/60">
+                                <svg
+                                    className="h-5 w-5 text-cyan-300 transition group-focus-within:scale-105"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    viewBox="0 0 24 24"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    value={searchTerm}
+                                    onChange={(event) => setSearchTerm(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                            handleSearch(event);
+                                        }
+                                    }}
+                                    placeholder="Enter a city e.g. Tokyo"
+                                    className="w-full bg-transparent text-base text-slate-100 placeholder:text-slate-400 focus:outline-none"
+                                    role="combobox"
+                                    aria-autocomplete="list"
+                                    aria-haspopup="listbox"
+                                    aria-expanded={shouldShowSuggestionPanel || shouldShowEmptySuggestions}
+                                    aria-controls="city-suggestion-list"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleDetectLocation}
+                                    disabled={isLocating}
+                                    className="flex items-center gap-2 rounded-full bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-cyan-200 transition hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {isLocating ? (
+                                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-90" d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                                        </svg>
+                                    ) : (
+                                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3Zm0 0c3.866 0 7 2.239 7 5v2H5v-2c0-2.761 3.134-5 7-5Zm0 0v7" />
+                                        </svg>
+                                    )}
+                                    <span className="hidden sm:inline">Use my location</span>
+                                </button>
+                            </label>
+                            {(shouldShowSuggestionPanel || shouldShowEmptySuggestions) && (
+                                <div className="absolute left-0 right-0 top-[calc(100%+0.75rem)] z-20 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-[0_30px_60px_-25px_rgba(56,189,248,0.9)] backdrop-blur">
+                                    <ul id="city-suggestion-list" role="listbox" className="max-h-64 overflow-y-auto py-2">
+                                        {isSuggesting && suggestions.length === 0 ? (
+                                            <li className="px-4 py-3 text-sm text-slate-300">Searching for cities...</li>
+                                        ) : suggestions.length > 0 ? (
+                                            suggestions.map((suggestion) => {
+                                                const label = formatSuggestionLabel(suggestion);
+                                                return (
+                                                    <li key={`${suggestion.lat}-${suggestion.lon}`}>
+                                                        <button
+                                                            type="button"
+                                                            role="option"
+                                                            aria-selected="false"
+                                                            onMouseDown={(event) => event.preventDefault()}
+                                                            onClick={() => handleSelectSuggestion(suggestion)}
+                                                            className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+                                                        >
+                                                            <span className="font-semibold text-slate-100">{label}</span>
+                                                            <span className="text-xs text-slate-400">Tap to load weather for this city</span>
+                                                        </button>
+                                                    </li>
+                                                );
+                                            })
+                                        ) : (
+                                            <li className="px-4 py-3 text-sm text-slate-300">No matching cities found. Try a different spelling.</li>
+                                        )}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
                         <div
                             ref={rangeRef}
                             className="group relative rounded-2xl bg-slate-900/60 px-5 py-4 ring-1 ring-white/5 transition focus-within:ring-2 focus-within:ring-cyan-400/60"
