@@ -2,9 +2,11 @@ const API_KEY = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
 const BASE_URL = 'https://api.openweathermap.org/data/2.5';
 const GEO_BASE_URL = 'https://api.openweathermap.org/geo/1.0';
 
-export const fetchWeather = async (city, units = 'metric') => {
+export const fetchWeather = async (city, units = 'metric', language = 'en') => {
     try {
-        const response = await fetch(`${BASE_URL}/weather?q=${city}&units=${units}&appid=${API_KEY}`);
+        const response = await fetch(
+            `${BASE_URL}/weather?q=${city}&units=${units}&lang=${language}&appid=${API_KEY}`,
+        );
 
         if (!response.ok) {
             throw new Error('Failed to fetch weather data');
@@ -18,10 +20,12 @@ export const fetchWeather = async (city, units = 'metric') => {
     }
 };
 
-export const fetchForecast = async (city, days, units = 'metric') => {
+export const fetchForecast = async (city, days, units = 'metric', language = 'en') => {
     try {
         const cnt = days * 8; // 8 data points per day (3-hour intervals)
-        const response = await fetch(`${BASE_URL}/forecast?q=${city}&cnt=${cnt}&units=${units}&appid=${API_KEY}`);
+        const response = await fetch(
+            `${BASE_URL}/forecast?q=${city}&cnt=${cnt}&units=${units}&lang=${language}&appid=${API_KEY}`,
+        );
 
         if (!response.ok) {
             throw new Error('Failed to fetch forecast data');
@@ -35,13 +39,22 @@ export const fetchForecast = async (city, days, units = 'metric') => {
     }
 };
 
-export const fetchAdditionalConditions = async (lat, lon, units = 'metric') => {
+export const fetchAdditionalConditions = async (lat, lon, units = 'metric', language = 'en') => {
+    if (!API_KEY) {
+        console.warn('OpenWeather API key missing; skipping additional condition lookup.');
+        return null;
+    }
+
     try {
         const response = await fetch(
-            `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,alerts&units=${units}&appid=${API_KEY}`,
+            `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,alerts&units=${units}&lang=${language}&appid=${API_KEY}`,
         );
 
         if (!response.ok) {
+            if (response.status === 401 || response.status === 403) {
+                console.warn('OpenWeather API key is not authorized for One Call data.');
+                return null;
+            }
             throw new Error('Failed to fetch additional condition data');
         }
 
@@ -53,9 +66,11 @@ export const fetchAdditionalConditions = async (lat, lon, units = 'metric') => {
     }
 };
 
-export const fetchWeatherByCoordinates = async (lat, lon, units = 'metric') => {
+export const fetchWeatherByCoordinates = async (lat, lon, units = 'metric', language = 'en') => {
     try {
-        const response = await fetch(`${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`);
+        const response = await fetch(
+            `${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=${units}&lang=${language}&appid=${API_KEY}`,
+        );
 
         if (!response.ok) {
             throw new Error('Failed to fetch weather data by coordinates');
@@ -69,10 +84,12 @@ export const fetchWeatherByCoordinates = async (lat, lon, units = 'metric') => {
     }
 };
 
-export const fetchForecastByCoordinates = async (lat, lon, days, units = 'metric') => {
+export const fetchForecastByCoordinates = async (lat, lon, days, units = 'metric', language = 'en') => {
     try {
         const cnt = days * 8;
-        const response = await fetch(`${BASE_URL}/forecast?lat=${lat}&lon=${lon}&cnt=${cnt}&units=${units}&appid=${API_KEY}`);
+        const response = await fetch(
+            `${BASE_URL}/forecast?lat=${lat}&lon=${lon}&cnt=${cnt}&units=${units}&lang=${language}&appid=${API_KEY}`,
+        );
 
         if (!response.ok) {
             throw new Error('Failed to fetch forecast data by coordinates');
@@ -86,14 +103,14 @@ export const fetchForecastByCoordinates = async (lat, lon, days, units = 'metric
     }
 };
 
-export const fetchCitySuggestions = async (query, limit = 5, signal) => {
+export const fetchCitySuggestions = async (query, limit = 5, signal, language = 'en') => {
     if (!query) {
         return [];
     }
 
     try {
         const response = await fetch(
-            `${GEO_BASE_URL}/direct?q=${encodeURIComponent(query)}&limit=${limit}&appid=${API_KEY}`,
+            `${GEO_BASE_URL}/direct?q=${encodeURIComponent(query)}&limit=${limit}&lang=${language}&appid=${API_KEY}`,
             { signal },
         );
 
@@ -119,10 +136,10 @@ export const fetchCitySuggestions = async (query, limit = 5, signal) => {
     }
 };
 
-export const fetchCityByCoordinates = async (lat, lon, signal) => {
+export const fetchCityByCoordinates = async (lat, lon, signal, language = 'en') => {
     try {
         const response = await fetch(
-            `${GEO_BASE_URL}/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${API_KEY}`,
+            `${GEO_BASE_URL}/reverse?lat=${lat}&lon=${lon}&limit=1&lang=${language}&appid=${API_KEY}`,
             { signal },
         );
 
